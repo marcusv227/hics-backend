@@ -1,0 +1,179 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  USER
+  ADMIN
+  HEALTH_PROFESSIONAL
+}
+
+model User {
+  id           String                 @id @default(uuid())
+  name         String
+  email        String                 @unique
+  passwordHash String                 @map("password_hash")
+  role         Role                   @default(USER)
+  avatarUrl    String?                @map("avatar_url")
+  createdAt    DateTime               @default(now()) @map("created_at")
+  updatedAt    DateTime               @updatedAt @map("updated_at")
+  progress     UserTrainingProgress[]
+  chatSessions ChatSession[]
+
+  @@map("users")
+}
+
+model Category {
+  id          String               @id @default(uuid())
+  name        String               @unique
+  slug        String               @unique
+  description String?
+  iconUrl     String?              @map("icon_url")
+  createdAt   DateTime             @default(now()) @map("created_at")
+  procedures  EmergencyProcedure[]
+  tracks      TrainingTrack[]
+  videos      EducationalVideo[]
+
+  @@map("categories")
+}
+
+model EmergencyProcedure {
+  id                 String          @id @default(uuid())
+  categoryId         String          @map("category_id")
+  title              String
+  summary            String
+  severityLevel      String          @default("HIGH") @map("severity_level")
+  sourceReference    String          @map("source_reference")
+  isOfflineAvailable Boolean         @default(true) @map("is_offline_available")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+  category           Category        @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  steps              ProcedureStep[]
+
+  @@map("emergency_procedures")
+}
+
+model ProcedureStep {
+  id          String             @id @default(uuid())
+  procedureId String             @map("procedure_id")
+  stepNumber  Int                @map("step_number")
+  title       String
+  instruction String
+  imageUrl    String?            @map("image_url")
+  warningText String?            @map("warning_text")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  procedure   EmergencyProcedure @relation(fields: [procedureId], references: [id], onDelete: Cascade)
+
+  @@unique([procedureId, stepNumber])
+  @@map("procedure_steps")
+}
+
+model TrainingTrack {
+  id                   String                 @id @default(uuid())
+  categoryId           String?                @map("category_id")
+  title                String
+  description          String?
+  estimatedTimeMinutes Int                    @default(10) @map("estimated_time_minutes")
+  coverImageUrl        String?                @map("cover_image_url")
+  createdAt            DateTime               @default(now()) @map("created_at")
+  category             Category?              @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  cards                TrainingCard[]
+  questions            QuizQuestion[]
+  userProgress         UserTrainingProgress[]
+
+  @@map("training_tracks")
+}
+
+model TrainingCard {
+  id          String        @id @default(uuid())
+  trackId     String        @map("track_id")
+  orderIndex  Int           @map("order_index")
+  title       String
+  contentText String        @map("content_text")
+  mediaUrl    String?       @map("media_url")
+  track       TrainingTrack @relation(fields: [trackId], references: [id], onDelete: Cascade)
+
+  @@unique([trackId, orderIndex])
+  @@map("training_cards")
+}
+
+model QuizQuestion {
+  id           String        @id @default(uuid())
+  trackId      String        @map("track_id")
+  questionText String        @map("question_text")
+  explanation  String
+  createdAt    DateTime      @default(now()) @map("created_at")
+  track        TrainingTrack @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  options      QuizOption[]
+
+  @@map("quiz_questions")
+}
+
+model QuizOption {
+  id         String       @id @default(uuid())
+  questionId String       @map("question_id")
+  optionText String       @map("option_text")
+  isCorrect  Boolean      @default(false) @map("is_correct")
+  question   QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@map("quiz_options")
+}
+
+model UserTrainingProgress {
+  id          String        @id @default(uuid())
+  userId      String        @map("user_id")
+  trackId     String        @map("track_id")
+  isCompleted Boolean       @default(false) @map("is_completed")
+  score       Int           @default(0)
+  completedAt DateTime?     @map("completed_at")
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  track       TrainingTrack @relation(fields: [trackId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, trackId])
+  @@map("user_training_progress")
+}
+
+model EducationalVideo {
+  id              String    @id @default(uuid())
+  categoryId      String?   @map("category_id")
+  title           String
+  youtubeVideoId  String    @map("youtube_video_id")
+  durationSeconds Int       @map("duration_seconds")
+  description     String?
+  thumbnailUrl    String?   @map("thumbnail_url")
+  sourceReference String    @map("source_reference")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  category        Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@map("educational_videos")
+}
+
+model ChatSession {
+  id                 String        @id @default(uuid())
+  userId             String        @map("user_id")
+  title              String        @default("Atendimento de Orientação")
+  disclaimerAccepted Boolean       @default(true) @map("disclaimer_accepted")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages           ChatMessage[]
+
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id           String      @id @default(uuid())
+  sessionId    String      @map("session_id")
+  sender       String
+  content      String
+  sourcesCited Json?       @default("[]") @map("sources_cited")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  session      ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("chat_messages")
+}

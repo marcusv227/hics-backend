@@ -1,0 +1,45 @@
+services:
+  postgres-app:
+    image: postgres:16-alpine
+    container_name: hics-postgres-app
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hics
+      POSTGRES_PASSWORD: hics_password
+      POSTGRES_DB: hics_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - hics_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hics -d hics_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hics-api
+    restart: unless-stopped
+    depends_on:
+      postgres-app:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: "postgresql://hics:hics_password@postgres-app:5432/hics_db?schema=public"
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      N8N_WEBHOOK_CHAT_URL: ${N8N_WEBHOOK_CHAT_URL}
+      N8N_WEBHOOK_TIMEOUT_MS: ${N8N_WEBHOOK_TIMEOUT_MS:-15000}
+      SWAGGER_USER: ${SWAGGER_USER}
+      SWAGGER_PASSWORD: ${SWAGGER_PASSWORD}
+    ports:
+      - "3000:3000"
+
+volumes:
+  hics_postgres_data:

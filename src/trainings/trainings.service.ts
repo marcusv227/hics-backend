@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { SubmitQuizDto } from './dto/submit-quiz.dto';
 
+const PASS_THRESHOLD = 70;
+
 @Injectable()
 export class TrainingsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -35,7 +37,11 @@ export class TrainingsService {
         cards: { orderBy: { orderIndex: 'asc' } },
         questions: {
           orderBy: { createdAt: 'asc' },
-          include: { options: true },
+          include: {
+            options: {
+              select: { id: true, questionId: true, optionText: true },
+            },
+          },
         },
         userProgress: { where: { userId } },
       },
@@ -69,27 +75,40 @@ export class TrainingsService {
     }
 
     let correctCount = 0;
-    for (const answer of dto.answers) {
+    const feedback = dto.answers.map((answer) => {
       const question = questions.find((q) => q.id === answer.questionId);
-      const option = question?.options.find((o) => o.id === answer.optionId);
-      if (option?.isCorrect) {
+      const correctOption = question?.options.find((o) => o.isCorrect);
+      const selectedOption = question?.options.find((o) => o.id === answer.optionId);
+      const isCorrect = Boolean(selectedOption?.isCorrect);
+      if (isCorrect) {
         correctCount += 1;
       }
-    }
+
+      return {
+        questionId: answer.questionId,
+        questionText: question?.questionText ?? '',
+        selectedOptionId: answer.optionId,
+        correctOptionId: correctOption?.id ?? '',
+        isCorrect,
+        explanation: question?.explanation ?? '',
+      };
+    });
 
     const score = Math.round((correctCount / questions.length) * 100);
-    const isCompleted = true;
+    const passed = score >= PASS_THRESHOLD;
 
     const progress = await this.prisma.userTrainingProgress.upsert({
       where: { userId_trackId: { userId, trackId } },
-      create: { userId, trackId, score, isCompleted, completedAt: new Date() },
-      update: { score, isCompleted, completedAt: new Date() },
+      create: { userId, trackId, score, isCompleted: passed, completedAt: new Date() },
+      update: { score, isCompleted: passed, completedAt: new Date() },
     });
 
     return {
       score,
+      passed,
       correctCount,
       totalQuestions: questions.length,
+      feedback,
       progress,
     };
   }

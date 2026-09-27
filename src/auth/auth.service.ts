@@ -2,10 +2,13 @@ import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/co
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { Role } from '@prisma/client';
 import type { User } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 const SALT_ROUNDS = 10;
 
@@ -29,6 +32,7 @@ export class AuthService {
         name: dto.name,
         email: dto.email,
         passwordHash,
+        role: dto.role ?? Role.USER,
       },
     });
 
@@ -55,6 +59,37 @@ export class AuthService {
       throw new UnauthorizedException();
     }
     return this.sanitizeUser(user);
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        name: dto.name,
+        avatarUrl: dto.avatarUrl,
+      },
+    });
+    return this.sanitizeUser(user);
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+
+    const currentPasswordMatches = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    if (!currentPasswordMatches) {
+      throw new UnauthorizedException('Senha atual incorreta.');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, SALT_ROUNDS);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash },
+    });
+
+    return { message: 'Senha alterada com sucesso.' };
   }
 
   private buildAuthResponse(user: User) {

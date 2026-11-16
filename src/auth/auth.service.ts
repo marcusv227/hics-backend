@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { Role } from '@prisma/client';
-import type { User } from '@prisma/client';
+import type { ProfessionalProfile, User } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -11,6 +11,12 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 
 const SALT_ROUNDS = 10;
+
+const ROLE_LABELS: Record<Role, string> = {
+  [Role.USER]: 'Cidadão Capacitado',
+  [Role.HEALTH_PROFESSIONAL]: 'Profissional de Saúde',
+  [Role.ADMIN]: 'Administrador Clínico',
+};
 
 @Injectable()
 export class AuthService {
@@ -27,12 +33,20 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(dto.password, SALT_ROUNDS);
+    const role = dto.role ?? Role.USER;
     const user = await this.prisma.user.create({
       data: {
         name: dto.name,
         email: dto.email,
         passwordHash,
-        role: dto.role ?? Role.USER,
+        role,
+        ...(role === Role.HEALTH_PROFESSIONAL && {
+          professionalProfile: {
+            create: {
+              registrationNumber: dto.professionalRegistration,
+            },
+          },
+        }),
       },
     });
 
@@ -54,11 +68,19 @@ export class AuthService {
   }
 
   async getProfile(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { professionalProfile: true },
+    });
     if (!user) {
       throw new UnauthorizedException();
     }
-    return this.sanitizeUser(user);
+    const { professionalProfile, ...rest } = user;
+    return {
+      ...this.sanitizeUser(rest),
+      roleLabel: ROLE_LABELS[user.role],
+      professional: this.buildProfessionalView(professionalProfile),
+    };
   }
 
   async updateProfile(userId: string, dto: UpdateProfileDto) {
@@ -92,8 +114,14 @@ export class AuthService {
     return { message: 'Senha alterada com sucesso.' };
   }
 
-  private buildAuthResponse(user: User) {
-    const payload = { sub: user.id, email: user.email, role: user.role };
+  private async buildAuthResponse(user: User) {
+    let credentialStatus: string | null = null;
+    if (user.role === Role.HEALTH_PROFESSIONAL) {
+      const profile = await this.prisma.professionalProfile.findUnique({ where: { userId: user.id } });
+      credentialStatus = profile?.status ?? null;
+    }
+
+    const payload = { sub: user.id, email: user.email, role: user.role, credentialStatus };
 
     const accessTokenExpiresIn = this.configService.get<string>('JWT_ACCESS_EXPIRES_IN', '15m');
     const refreshTokenExpiresIn = this.configService.get<string>('JWT_REFRESH_EXPIRES_IN', '7d');
@@ -118,5 +146,23 @@ export class AuthService {
   private sanitizeUser<T extends { passwordHash: string }>(user: T) {
     const { passwordHash: _passwordHash, ...rest } = user;
     return rest;
+  }
+
+  private buildProfessionalView(profile: ProfessionalProfile | null) {
+    if (!profile) {
+      return null;
+    }
+    const label =
+      profile.council && profile.registrationNumber && profile.uf
+        ? `${profile.council} ${profile.registrationNumber}/${profile.uf}`
+        : profile.registrationNumber ?? null;
+
+    return {
+      council: profile.council,
+      registrationNumber: profile.registrationNumber,
+      uf: profile.uf,
+      status: profile.status,
+      label,
+    };
   }
 }

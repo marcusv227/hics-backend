@@ -1,8 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubmitQuizDto } from './dto/submit-quiz.dto';
+import { withProvenance } from '../common/content-provenance';
 
 const PASS_THRESHOLD = 70;
+const AUTHOR_INCLUDE = { author: { select: { name: true, professionalProfile: { select: { council: true, registrationNumber: true, uf: true } } } } };
 
 @Injectable()
 export class TrainingsService {
@@ -10,18 +12,20 @@ export class TrainingsService {
 
   async listTracks(userId: string) {
     const tracks = await this.prisma.trainingTrack.findMany({
+      where: { publishedAt: { not: null } },
       orderBy: { title: 'asc' },
       include: {
         category: true,
         userProgress: { where: { userId } },
         _count: { select: { cards: true, questions: true } },
+        ...AUTHOR_INCLUDE,
       },
     });
 
     return tracks.map((track) => {
       const { userProgress, _count, ...rest } = track;
       return {
-        ...rest,
+        ...withProvenance(rest),
         cardCount: _count.cards,
         questionCount: _count.questions,
         progress: userProgress[0] ?? { isCompleted: false, score: 0, completedAt: null },
@@ -44,21 +48,27 @@ export class TrainingsService {
           },
         },
         userProgress: { where: { userId } },
+        ...AUTHOR_INCLUDE,
       },
     });
 
-    if (!track) {
+    if (!track || !track.publishedAt) {
       throw new NotFoundException('Trilha de treinamento não encontrada.');
     }
 
     const { userProgress, ...rest } = track;
     return {
-      ...rest,
+      ...withProvenance(rest),
       progress: userProgress[0] ?? { isCompleted: false, score: 0, completedAt: null },
     };
   }
 
   async submitQuiz(trackId: string, userId: string, dto: SubmitQuizDto) {
+    const track = await this.prisma.trainingTrack.findUnique({ where: { id: trackId } });
+    if (!track || !track.publishedAt) {
+      throw new NotFoundException('Trilha de treinamento não encontrada.');
+    }
+
     const questions = await this.prisma.quizQuestion.findMany({
       where: { trackId },
       include: { options: true },

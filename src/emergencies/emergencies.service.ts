@@ -2,6 +2,9 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ListEmergenciesQueryDto } from './dto/list-emergencies-query.dto';
+import { withProvenance } from '../common/content-provenance';
+
+const AUTHOR_INCLUDE = { author: { select: { name: true, professionalProfile: { select: { council: true, registrationNumber: true, uf: true } } } } };
 
 @Injectable()
 export class EmergenciesService {
@@ -10,7 +13,7 @@ export class EmergenciesService {
   async listCategories() {
     const categories = await this.prisma.category.findMany({
       orderBy: { name: 'asc' },
-      include: { _count: { select: { procedures: true } } },
+      include: { _count: { select: { procedures: { where: { publishedAt: { not: null } } } } } },
     });
 
     return categories.map((category) => ({
@@ -25,6 +28,7 @@ export class EmergenciesService {
 
   async list(query: ListEmergenciesQueryDto) {
     const where: Prisma.EmergencyProcedureWhereInput = {
+      publishedAt: { not: null },
       categoryId: query.categoryId,
       ...(query.search && {
         OR: [
@@ -34,11 +38,13 @@ export class EmergenciesService {
       }),
     };
 
-    return this.prisma.emergencyProcedure.findMany({
+    const procedures = await this.prisma.emergencyProcedure.findMany({
       where,
       orderBy: { title: 'asc' },
-      include: { category: true },
+      include: { category: true, ...AUTHOR_INCLUDE },
     });
+
+    return procedures.map(withProvenance);
   }
 
   async getGuide(id: string) {
@@ -47,13 +53,14 @@ export class EmergenciesService {
       include: {
         category: true,
         steps: { orderBy: { stepNumber: 'asc' } },
+        ...AUTHOR_INCLUDE,
       },
     });
 
-    if (!procedure) {
+    if (!procedure || !procedure.publishedAt) {
       throw new NotFoundException('Procedimento de emergência não encontrado.');
     }
 
-    return procedure;
+    return withProvenance(procedure);
   }
 }

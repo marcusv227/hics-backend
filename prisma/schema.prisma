@@ -13,6 +13,45 @@ enum Role {
   HEALTH_PROFESSIONAL
 }
 
+enum ProfessionalCouncil {
+  CRM
+  COREN
+  CREFITO
+  CRF
+}
+
+enum CredentialStatus {
+  NOT_SUBMITTED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ContentType {
+  EMERGENCY
+  TRACK
+  VIDEO
+}
+
+enum SubmissionStatus {
+  DRAFT
+  IN_REVIEW
+  CHANGES_REQUESTED
+  PUBLISHED
+}
+
+enum ContentOrigin {
+  SEED
+  PROFESSIONAL
+}
+
+enum NotificationType {
+  CREDENTIAL_APPROVED
+  CREDENTIAL_REJECTED
+  SUBMISSION_PUBLISHED
+  SUBMISSION_CHANGES_REQUESTED
+}
+
 model User {
   id           String                 @id @default(uuid())
   name         String
@@ -25,7 +64,101 @@ model User {
   progress     UserTrainingProgress[]
   chatSessions ChatSession[]
 
+  professionalProfile ProfessionalProfile?
+  credentialReviews   ProfessionalProfile[] @relation("CredentialReviewer")
+  submissions         ContentSubmission[]   @relation("Author")
+  reviews             ContentSubmission[]   @relation("Reviewer")
+  notifications       Notification[]
+  authoredProcedures  EmergencyProcedure[]  @relation("ProcedureAuthor")
+  reviewedProcedures  EmergencyProcedure[]  @relation("ProcedureReviewer")
+  authoredTracks      TrainingTrack[]       @relation("TrackAuthor")
+  reviewedTracks      TrainingTrack[]       @relation("TrackReviewer")
+  authoredVideos      EducationalVideo[]    @relation("VideoAuthor")
+  reviewedVideos      EducationalVideo[]    @relation("VideoReviewer")
+
   @@map("users")
+}
+
+model ProfessionalProfile {
+  id                 String              @id @default(uuid())
+  userId             String              @unique @map("user_id")
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  council            ProfessionalCouncil?
+  registrationNumber String?             @map("registration_number")
+  uf                 String?             @db.Char(2)
+  specialty          String?
+  institution        String?
+  documentKey        String?             @map("document_key")
+  documentMime       String?             @map("document_mime")
+  documentSizeBytes  Int?                @map("document_size_bytes")
+  status             CredentialStatus    @default(NOT_SUBMITTED)
+  submittedAt        DateTime?           @map("submitted_at")
+  reviewedAt         DateTime?           @map("reviewed_at")
+  reviewedById       String?             @map("reviewed_by_id")
+  reviewedBy         User?               @relation("CredentialReviewer", fields: [reviewedById], references: [id])
+  rejectionReason    String?             @map("rejection_reason")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  @@unique([council, registrationNumber, uf])
+  @@index([status])
+  @@map("professional_profiles")
+}
+
+model ContentSubmission {
+  id                String           @id @default(uuid())
+  type              ContentType
+  status            SubmissionStatus @default(DRAFT)
+  title             String
+  payload           Json
+  authorId          String           @map("author_id")
+  author            User             @relation("Author", fields: [authorId], references: [id])
+  submittedAt       DateTime?        @map("submitted_at")
+  dueAt             DateTime?        @map("due_at")
+  reviewerId        String?          @map("reviewer_id")
+  reviewer          User?            @relation("Reviewer", fields: [reviewerId], references: [id])
+  reviewedAt        DateTime?        @map("reviewed_at")
+  checklist         Json?
+  previewTestedAt   DateTime?        @map("preview_tested_at")
+  changeReasons     String[]         @default([]) @map("change_reasons")
+  reviewNote        String?          @map("review_note")
+  publishedEntityId String?          @map("published_entity_id")
+  version           Int              @default(1)
+  parentId          String?          @map("parent_id")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  @@index([status, type])
+  @@index([authorId, status])
+  @@map("content_submissions")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?        @map("read_at")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  actorId   String   @map("actor_id")
+  action    String
+  entity    String
+  entityId  String   @map("entity_id")
+  meta      Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([entity, entityId])
+  @@map("audit_logs")
 }
 
 model Category {
@@ -43,16 +176,27 @@ model Category {
 }
 
 model EmergencyProcedure {
-  id                 String          @id @default(uuid())
-  categoryId         String          @map("category_id")
+  id                 String            @id @default(uuid())
+  categoryId         String            @map("category_id")
   title              String
   summary            String
-  severityLevel      String          @default("HIGH") @map("severity_level")
-  sourceReference    String          @map("source_reference")
-  isOfflineAvailable Boolean         @default(true) @map("is_offline_available")
-  createdAt          DateTime        @default(now()) @map("created_at")
-  updatedAt          DateTime        @updatedAt @map("updated_at")
-  category           Category        @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  coverImageUrl      String?           @map("cover_image_url")
+  severityLevel      String            @default("HIGH") @map("severity_level")
+  sourceReference    String            @map("source_reference")
+  isOfflineAvailable Boolean           @default(true) @map("is_offline_available")
+  dontDoItems        String[]          @default([]) @map("dont_do_items")
+  relatedVideoId     String?           @unique @map("related_video_id")
+  relatedVideo       EducationalVideo? @relation("ProcedureRelatedVideo", fields: [relatedVideoId], references: [id], onDelete: SetNull)
+  origin             ContentOrigin     @default(SEED)
+  authorId           String?           @map("author_id")
+  author             User?             @relation("ProcedureAuthor", fields: [authorId], references: [id])
+  reviewedById       String?           @map("reviewed_by_id")
+  reviewedBy         User?             @relation("ProcedureReviewer", fields: [reviewedById], references: [id])
+  publishedAt        DateTime?         @map("published_at")
+  submissionId       String?           @unique @map("submission_id")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+  category           Category          @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   steps              ProcedureStep[]
 
   @@map("emergency_procedures")
@@ -80,6 +224,13 @@ model TrainingTrack {
   description          String?
   estimatedTimeMinutes Int                    @default(10) @map("estimated_time_minutes")
   coverImageUrl        String?                @map("cover_image_url")
+  origin               ContentOrigin          @default(SEED)
+  authorId             String?                @map("author_id")
+  author               User?                  @relation("TrackAuthor", fields: [authorId], references: [id])
+  reviewedById         String?                @map("reviewed_by_id")
+  reviewedBy           User?                  @relation("TrackReviewer", fields: [reviewedById], references: [id])
+  publishedAt          DateTime?              @map("published_at")
+  submissionId         String?                @unique @map("submission_id")
   createdAt            DateTime               @default(now()) @map("created_at")
   category             Category?              @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   cards                TrainingCard[]
@@ -139,16 +290,24 @@ model UserTrainingProgress {
 }
 
 model EducationalVideo {
-  id              String    @id @default(uuid())
-  categoryId      String?   @map("category_id")
+  id              String              @id @default(uuid())
+  categoryId      String?             @map("category_id")
   title           String
-  youtubeVideoId  String    @map("youtube_video_id")
-  durationSeconds Int       @map("duration_seconds")
+  youtubeVideoId  String              @map("youtube_video_id")
+  durationSeconds Int                 @map("duration_seconds")
   description     String?
-  thumbnailUrl    String?   @map("thumbnail_url")
-  sourceReference String    @map("source_reference")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  category        Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  thumbnailUrl    String?             @map("thumbnail_url")
+  sourceReference String              @map("source_reference")
+  origin          ContentOrigin       @default(SEED)
+  authorId        String?             @map("author_id")
+  author          User?               @relation("VideoAuthor", fields: [authorId], references: [id])
+  reviewedById    String?             @map("reviewed_by_id")
+  reviewedBy      User?               @relation("VideoReviewer", fields: [reviewedById], references: [id])
+  publishedAt     DateTime?           @map("published_at")
+  submissionId    String?             @unique @map("submission_id")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  category        Category?           @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  linkedProcedure EmergencyProcedure? @relation("ProcedureRelatedVideo")
 
   @@map("educational_videos")
 }

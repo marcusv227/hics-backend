@@ -14,6 +14,7 @@ export class SearchService {
     const [procedures, tracks, videos] = await Promise.all([
       this.prisma.emergencyProcedure.findMany({
         where: {
+          publishedAt: { not: null },
           OR: [
             { title: { contains: query, mode: 'insensitive' } },
             { summary: { contains: query, mode: 'insensitive' } },
@@ -24,6 +25,7 @@ export class SearchService {
       }),
       this.prisma.trainingTrack.findMany({
         where: {
+          publishedAt: { not: null },
           OR: [
             { title: { contains: query, mode: 'insensitive' } },
             { description: { contains: query, mode: 'insensitive' } },
@@ -33,6 +35,7 @@ export class SearchService {
       }),
       this.prisma.educationalVideo.findMany({
         where: {
+          publishedAt: { not: null },
           OR: [
             { title: { contains: query, mode: 'insensitive' } },
             { description: { contains: query, mode: 'insensitive' } },

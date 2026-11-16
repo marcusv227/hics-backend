@@ -1,15 +1,21 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { join } from 'path';
 import { AppModule } from './app.module';
 import { swaggerBasicAuth } from './common/swagger-basic-auth.middleware';
 
 const SWAGGER_PATH = 'api/docs';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
+  // Static assets (procedure/category/track illustrations) — served outside
+  // the /api/v1 prefix, e.g. GET /static/images/procedures/rcp-adulto.svg
+  app.useStaticAssets(join(process.cwd(), 'public'), { prefix: '/static' });
 
   app.setGlobalPrefix('api/v1');
   app.enableCors();

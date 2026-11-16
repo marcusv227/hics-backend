@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 140">
+  <rect x="2" y="2" width="196" height="136" rx="14" fill="#F4EFE7"/>
+  <path d="M68 38 C62 38 58 42 59 48 C61 58 66 68 76 78 C86 88 96 93 106 95 C112 96 116 92 116 86 L116 76 C116 72 113 69 109 69 L99 67 C96 66 93 67 91 70 L88 74 C80 70 74 64 70 56 L74 53 C77 51 78 48 77 45 L75 35 C74 31 71 28 67 28 Z" fill="#B3261E"/>
+  <path d="M128 40 Q142 30 150 40 M134 50 Q144 44 150 50" fill="none" stroke="#2A2521" stroke-width="4" stroke-linecap="round"/>
+  <text x="100" y="124" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#2A2521" font-variant-numeric="tabular-nums">192</text>
+</svg>

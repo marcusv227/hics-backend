@@ -17,6 +17,50 @@ services:
       timeout: 5s
       retries: 10
 
+  minio:
+    # minio/minio was discontinued and pulled from Docker Hub in 2026 (the
+    # upstream GitHub repo is archived, community edition is now source-only).
+    # pgsty/minio is a verified, actively-published community fork of the
+    # last pre-archive release — same `minio`/`mc` binaries, same CLI.
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    container_name: hics-minio
+    restart: unless-stopped
+    # Not tunneled/published to the internet — documents stay reachable solely
+    # through our own API (see DocumentAccessController), so we never need a
+    # presigned URL whose host the client's browser can actually resolve.
+    # Host port mapping is for local debugging only (same pattern as postgres-app's 5433).
+    ports:
+      - "9000:9000"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-hics_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - hics_minio_data:/data
+    command: server /data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z
+    container_name: hics-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-hics_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET:-hics-documents}
+    entrypoint: >
+      sh -c "
+        mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" &&
+        mc mb --ignore-existing local/\"$$S3_BUCKET\" &&
+        mc anonymous set none local/\"$$S3_BUCKET\"
+      "
+    restart: "no"
+
   api:
     build:
       context: .
@@ -26,6 +70,8 @@ services:
     depends_on:
       postgres-app:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -38,8 +84,17 @@ services:
       N8N_WEBHOOK_TIMEOUT_MS: ${N8N_WEBHOOK_TIMEOUT_MS:-15000}
       SWAGGER_USER: ${SWAGGER_USER}
       SWAGGER_PASSWORD: ${SWAGGER_PASSWORD}
+      S3_ENDPOINT: "http://minio:9000"
+      S3_BUCKET: ${S3_BUCKET:-hics-documents}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-hics_minio}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      S3_REGION: us-east-1
     ports:
       - "3000:3000"
+    volumes:
+      - hics_storage:/app/storage
 
 volumes:
   hics_postgres_data:
+  hics_storage:
+  hics_minio_data:
